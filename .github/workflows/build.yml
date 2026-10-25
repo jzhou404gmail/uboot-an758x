@@ -68,19 +68,26 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           pattern: an758x-*
           path: release
           merge-multiple: true
 
-      - name: Create release
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="$GITHUB_REF_NAME"
           notes="doc/release-${tag}.md"
-          if [ -f "$notes" ]; then
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ -f "$notes" ]; then
+              gh release edit "$tag" --notes "$(cat "$notes")" \
+                --repo "$GITHUB_REPOSITORY"
+            fi
+          elif [ -f "$notes" ]; then
             gh release create "$tag" release/* --generate-notes \
               --notes "$(cat "$notes")" --repo "$GITHUB_REPOSITORY"
           else

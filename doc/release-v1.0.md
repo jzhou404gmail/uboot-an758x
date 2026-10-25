@@ -75,3 +75,6 @@ SPI NAND 机型没有 `*-firstblock.bin`，属于正常。
 - 工作记录（现象、根因、上游状态、ECC 逐芯片核对）：
   <https://github.com/jzhou404gmail/uboot-an758x/blob/main/doc/an758x-notes.md>
 - 上游项目：<https://github.com/pbs05/uboot-an758x>
+
+**Full Changelog**:
+<https://github.com/jzhou404gmail/uboot-an758x/compare/v2026.07-5-jzhou...v1.0>

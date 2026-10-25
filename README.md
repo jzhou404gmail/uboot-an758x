@@ -25,6 +25,24 @@ Hold Reset about one second after power-on to enter Web recovery.
 | `xg-040g-tf` | Nokia XG-040G-TF | AN7581 | SPI NAND |
 | `xg-040g-mf` | Nokia XG-040G-MF | AN7583 | SPI NAND |
 
+## Verified on hardware / 真机实测
+
+The two NAND chips below are not only entries in the tables: both boards were
+flashed with U-Boot built from this tree, recovered from a half-brick and boot
+normally — **tested on real hardware** /
+下面两颗 NAND 不只是加了表项：两块板都用本仓库源码编译的 U-Boot 做过真机刷机，
+从半砖状态救回并正常启动，**经过实测**。
+
+| Board / 板子 | SoC | NAND | Full ID | Result / 结果 |
+| --- | --- | --- | --- | --- |
+| FiberHome HG5382A (`hg5382a`) | AN7581 | Winbond `W29N02KVSIAF` | `ef da 10 95 06` | Self-built U-Boot flashed, half-brick recovered, boots<br>自己编译的 U-Boot 刷入，半砖救回，正常启动 |
+| FiberHome HG5585F CU (`hg5585f-cu`) | AN7581 | Skyhigh `S34ML02G300TFI00` | `01 da 00 95 46` (BL2 prints `01:da:469500`) | Self-built U-Boot flashed, half-brick recovered, boots<br>自己编译的 U-Boot 刷入，半砖救回，正常启动 |
+
+Both chips use 4 bit / 512 B ECC in the U-Boot and BL2 tables, matching what
+Linux reads from the JEDEC parameter page, so UBI attaches without
+`-74` (ECC error) / 两颗芯片在 U-Boot 与 BL2 表中都是 4 bit / 512 B，与 Linux
+从 JEDEC 参数页读到的值一致，UBI 挂载不再报 `-74`。
+
 ## Download / 下载
 
 Prebuilt images for every target are attached to the

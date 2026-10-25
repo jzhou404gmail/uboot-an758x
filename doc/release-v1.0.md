@@ -12,6 +12,19 @@ AN758x（Airoha AN7581 / AN7583）恢复引导，由本仓库 CI 从 tag `v1.0` 
 - 修复：UNG00A 默认 env 不再携带并行 NAND 的 `mtdids`/`mtdparts`，
   重建 UBI 时不再出现 `Could not find a valid device for nand0`。
 
+## 真机实测 / Verified on hardware
+
+下面两颗 NAND 不只是加了表项：两块板都用本仓库源码编译的 U-Boot 做过真机
+刷机，从半砖状态救回并正常启动，**经过实测**：
+
+| 板子 / Board | NAND | Full ID | 结果 / Result |
+| --- | --- | --- | --- |
+| FiberHome HG5382A（`hg5382a`） | Winbond `W29N02KVSIAF` | `ef da 10 95 06` | 自己编译的 U-Boot 刷入，半砖救回，正常启动 |
+| FiberHome HG5585F CU（`hg5585f-cu`） | Skyhigh `S34ML02G300TFI00` | `01 da 00 95 46`（BL2 打印 `01:da:469500`） | 自己编译的 U-Boot 刷入，半砖救回，正常启动 |
+
+两颗芯片在 U-Boot 与 BL2 表中都是 4 bit / 512 B ECC，与 Linux 从 JEDEC 参数页
+读到的值一致，UBI 挂载不再报 `-74`（ECC error）。
+
 ## 覆盖机型 / Targets
 
 | 目标 | 设备 | SoC | 存储 |

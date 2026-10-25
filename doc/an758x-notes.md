@@ -7,8 +7,8 @@
 - 仓库：`uboot-an758x`（fork: `jzhou404gmail/uboot-an758x`）
 - 涉及机型：FiberHome **HG5585F CU**（AN7581 + SkyHigh `S34ML02G300TFI00`）、
   FiberHome **HG5382A**（AN7581 + Winbond `W29N02KVSIAF`）
-- 当前结论：**调机期间的全部代码改动都已进入上游 `main`，本地分支没有遗留
-  的可提交差异**；本 fork 目前只有文档增量。
+- 当前结论：**调机期间的全部代码改动都已进入上游 `main`**；本 fork 额外保留
+  文档增量，以及 `v1.0` 里一处尚未上游的 UNG00A 板级 env 修复（见第 9 节）。
 
 ---
 
@@ -27,6 +27,7 @@
 | 10-08 | 拉取上游最新；HG5382A + Winbond `W29N02KVSIAF` 变砖调查 → 结论：上游已支持该闪存，本地无需改代码；按上游 `4b91e112` 构建救砖镜像到 `output/hg5382a/` |
 | 10-10 | 复核 Winbond 条目在已构建二进制中的实际取值 → 无 Winbond 相关的可提交改动 |
 | 10-16 | 本轮：核对 ECC 一致性、完善 README、新增本文档 |
+| 10-25 | UNG00A 重建 UBI 报 `Could not find a valid device for nand0` → 定位为板级 env 误带并行 NAND 的 `mtdids`/`mtdparts`，删除并重编；核对重建时跳过的 16 个坏块；发布 `v1.0` |
 
 ---
 
@@ -216,3 +217,73 @@ export AIROHA_SIGN_KEY_PATH=/path/to/rsa4096-root.pem
 | `154ec96a` | 1261685372 | 09-23 | S34ML02G300TFI00 ECC 降到 4 bit（U-Boot） |
 | `b5056eb6` | 22p | 09-23 | 修正 S34ML02G300TFI00 在 TF-A 表中的 ECC 字段 |
 | `4b91e112` | pbs05 | 09-30 | Merge PR #19（当前上游 `main`） |
+
+---
+
+## 9. 2026-10-25：UNG00A env 修复、坏块核对与 v1.0 发布
+
+### 9.1 现象
+
+UNG00A 用最新镜像重建 UBI 时打印：
+
+```
+"spi-nand0" partitions still in use, can't delete them
+Could not find a valid device for nand0
+...
+Could not find a valid device for nand0
+```
+
+重建本身成功（最后的 `UBI rebuilt with empty base volumes` 正常打印），但夹了两条
+无效报错。
+
+### 9.2 根因
+
+`board/airoha/an7581/an7581_unionman_ung00a.env` 是从并行 NAND 机型复制来的，带着：
+
+```
+mtdids=nand0=nand0
+mtdparts=mtdparts=nand0:128k(bl2),-(ubi)
+```
+
+UNG00A 是 SPI NAND，MTD 设备名是 `spi-nand0`，`bl2`/`ubi` 分区来自 DTS 的
+`fixed-partitions`（`dts/upstream/src/arm64/airoha/an7581-unionman-ung00a.dts`）。
+于是每次 `mtd_probe_devices()`（网页状态页一次、重建 UBI 一次）都去解析 `nand0`，
+找不到就报错；分区最终由 OF 兜底保住，所以重建没有失败。
+
+### 9.3 修复
+
+删除这两行（其他 SPI NAND 机型的 env 本来就没有）。重编后 `u-boot.bin` 中不再
+出现 `nand0` 字样，默认 env 与其他 SPI NAND 机型一致。
+
+### 9.4 重建时的 16 个坏块
+
+重建 UBI 的擦除阶段会打印 16 条 `Skipping bad block at 0x...`
+（`0x7320000` ~ `0xfbe0000`）。核对结论：
+
+- 两次重建打印的地址完全一致 → 是 OOB 里持久存在的坏块标记，不是读错；
+- `16 / 2047 ≈ 0.78%`，在 NAND 正常范围（厂家一般允许 ≤2%）；
+- 全部集中在 ubi 分区后半段，符合原系统 `rootfs_data`（overlay）反复擦写、
+  擦除失败后被 UBI 标记坏块的特征；
+- SPI NAND 的坏块判定是上游通用逻辑（`spinand_isbad()` 读每块首页 OOB 前 2 字节），
+  与并行 NAND 那个“未初始化高字节”的 bug 无关。
+
+结论：按坏块对待即可，UBI 会自动跳过，只损失 2 MiB。不要用网页“清除坏块标记”
+（会擦掉整片，含 BL2）；也不建议逐块 `mtd erase.dontskipbad`，因为 `mtd erase`
+对 SPI NAND 擦除失败返回的 `-EIO` 是静默当成功的，而重建 UBI 的擦除阶段遇到
+`-EIO` 会直接中止。
+
+现场核对命令（串口 115200 8N1，Ctrl-C 退出 web 后）：
+
+```
+mtd bad ubi          # 偏移相对 ubi 分区，与网页日志一致
+mtd bad spi-nand0    # 物理偏移 = 上面的值 + 0x20000
+ubi part ubi
+ubi info             # number of bad PEBs
+```
+
+### 9.5 v1.0 发布
+
+- tag `v1.0`，CI 构建全部 12 个机型并上传到 Release；未配置
+  `AIROHA_SIGN_KEY` secret 时产物为未签名 FIP。
+- Release 说明见 `doc/release-v1.0.md`；工作流在存在
+  `doc/release-<tag>.md` 时把它作为 Release 正文（并追加自动生成的变更列表）。

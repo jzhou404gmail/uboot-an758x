@@ -25,6 +25,19 @@ Hold Reset about one second after power-on to enter Web recovery.
 | `xg-040g-tf` | Nokia XG-040G-TF | AN7581 | SPI NAND |
 | `xg-040g-mf` | Nokia XG-040G-MF | AN7583 | SPI NAND |
 
+## Download / 下载
+
+Prebuilt images for every target are attached to the
+[latest release](https://github.com/jzhou404gmail/uboot-an758x/releases/latest) /
+每个机型的预编译镜像见 [最新 Release](https://github.com/jzhou404gmail/uboot-an758x/releases/latest)。
+
+Release images are built by CI from the tagged commit; they are signed only when
+the repository has an `AIROHA_SIGN_KEY` secret. Build locally with
+`AIROHA_SIGN_KEY_PATH` if your board verifies FIP signatures /
+Release 镜像由 CI 从 tag 提交构建；只有仓库配置了 `AIROHA_SIGN_KEY` secret 时才签名。
+若设备校验 FIP 签名，请按 [Build / 构建](#build--构建) 在本地带
+`AIROHA_SIGN_KEY_PATH` 重新构建。
+
 ## Recovery entry / 进入恢复模式
 
 The rescue bootloader is entered from the serial console or through the Web
@@ -90,6 +103,23 @@ preloader FIP 位于 `0x800` 偏移，可直接用编程器写入。
 
 CI builds every target on push and attaches them to a release for tags / CI 在
 每次推送时构建全部机型，打 tag 时自动发布 Release。
+
+### Build every target / 构建全部机型
+
+```sh
+for b in hg5382a hg5585f-ct hg5585f-cu hm2004-du xg2010g xr1710g \
+         zn504xg-d zn515xg-d ung00a xg-040g-md xg-040g-tf xg-040g-mf; do
+	./scripts/build-an758x.sh "$b" || break
+done
+```
+
+Each target builds out of tree under `build/<target>/` and writes its artifacts
+to `output/<target>/`, so targets can also be built in parallel from separate
+shells / 每个机型在 `build/<target>/` 下独立构建、产物写入 `output/<target>/`，
+也可以在多个终端里并行构建。
+
+`xg-040g-mf` is the only AN7583 target; the other eleven are AN7581 /
+`xg-040g-mf` 是唯一 AN7583 机型，其余 11 个都是 AN7581。
 
 ## Installation / 刷入
 
@@ -223,20 +253,26 @@ the declaration in line with the JEDEC parameter page Linux will read / 新增�
 | `nand bad` lists blocks `0x0` onwards, including the block BL2 booted from<br>`nand bad` 从 0 号块开始报出大量坏块 | Older builds compared an uninitialised high byte of the marker word and reported good blocks as bad. Fixed upstream; on an older build `nand scrub -y <off> <size>` clears the false markers, at the cost of erasing that range<br>旧版本把标记字未初始化的高字节一起比较，把好块判成坏块。已在上游修复；旧镜像上可用 `nand scrub -y` 清掉误标，但该范围内的数据会被一并擦除 |
 | `ubi0 warning: ubi_io_read: error -74 (ECC error)` on every written PEB after Linux attaches<br>Linux 挂载后每个已写 PEB 都报 `error -74 (ECC error)` | U-Boot and Linux (and BL2) disagree on the ECC strength for that chip; see [ECC strength has to agree on both sides](#ecc-strength-has-to-agree-on-both-sides--两侧-ecc-强度必须一致)<br>U-Boot 与 Linux/BL2 对该芯片的 ECC 强度不一致，见上一节 |
 | BL2 identifies the NAND and then waits in XMODEM forever<br>BL2 认出 NAND 后一直停在 XMODEM | The FIP is neither in the `fip` volume nor in the boot partition: rebuild UBI and write `*-bl31-u-boot.fip`, or send it over XMODEM<br>FIP 既不在 `fip` 卷也不在引导分区：重建 UBI 后写入 `*-bl31-u-boot.fip`，或用 XMODEM 发送 |
+| UNG00A prints `Could not find a valid device for nand0` while rebuilding UBI<br>UNG00A 重建 UBI 时打印 `Could not find a valid device for nand0` | Fixed in `v1.0`. The board env inherited the parallel-NAND `mtdids`/`mtdparts` (`nand0`), but UNG00A is SPI NAND (`spi-nand0`) and its `bl2`/`ubi` partitions come from the DTS. Update to `v1.0` or later, or run `setenv mtdids; setenv mtdparts; saveenv` once<br>`v1.0` 已修复。该机型 env 误带了并行 NAND 的 `nand0` 表项，而 UNG00A 是 SPI NAND（`spi-nand0`），`bl2`/`ubi` 分区来自 DTS。请更新到 `v1.0` 及以后，或在命令行执行一次 `setenv mtdids; setenv mtdparts; saveenv` |
+| `"spi-nand0" partitions still in use, can't delete them` while rebuilding UBI<br>重建 UBI 时打印 `"spi-nand0" partitions still in use...` | Informational: the rebuild probes MTD before detaching UBI, so the existing partitions are kept and reused; the rebuild continues<br>提示性信息：重建时先探测 MTD 再 detach UBI，删除被拒后直接复用现有分区，重建会继续 |
+| `Skipping bad block at 0x...` while rebuilding UBI<br>重建 UBI 时打印一串 `Skipping bad block` | Normal: the erase loop and UBI both skip blocks already marked bad. Do not use **Clear bad block markers** for this; it erases the whole chip, BL2 included<br>正常：擦除循环和 UBI 都会跳过已标记的坏块。不要因此使用 **清除坏块标记**，它会擦掉整片（含 BL2） |
 | Web page unreachable<br>网页打不开 | Check the link LED and that the PC uses DHCP or `192.168.0.2/24`; the interface is only started in recovery, and `ipaddr`/`netmask` can be overridden with `httpd_ipaddr`/`httpd_netmask`<br>检查网口灯与电脑是否自动获取 IP 或设为 `192.168.0.2/24`；恢复模式才会启动网口，地址可用 `httpd_ipaddr`/`httpd_netmask` 覆盖 |
 
 ## Changes in this repository / 本仓库改动
 
-All code changes made while bringing up these boards are in upstream `main`;
-this fork only adds documentation / 调机期间的全部代码改动都已进入上游 `main`，
-本 fork 目前只额外增加文档：
+Most bring-up changes are in upstream `main`; this fork adds the documentation
+below and one board-env fix that is not upstream yet /
+大部分调机改动已进入上游 `main`；本仓库额外增加下面的文档，以及一处尚未上游的
+板级 env 修复：
 
-| Work / 工作 | Upstream status / 上游状态 |
+| Work / 工作 | Status / 状态 |
 | --- | --- |
 | Bad-block marker read on x8/x16 NAND (`airoha_nfc_block_bad`)<br>x8/x16 NAND 坏块标记读取 | Merged: `cdca3873` (x8) and `d7d54582` (x16, authored by this fork)<br>已合并：`cdca3873`（x8）与 `d7d54582`（x16，作者为本仓库） |
 | BL2 skips the boot-partition FIP preload when UBI owns the FIP<br>FIP 归 UBI 时 BL2 跳过引导分区预读 | Merged as `9c5cb7f7` and follow-ups<br>已由 `9c5cb7f7` 等提交合并 |
 | `S34ML02G300TFI00` ECC lowered to 4 bit / 512 B in both tables<br>两张表的 `S34ML02G300TFI00` 统一为 4 bit / 512 B | Merged as `154ec96a` and `b5056eb6`<br>已由 `154ec96a`、`b5056eb6` 合并 |
-| Local work log, symptoms and verification / 本地工作记录、现象与验证 | [doc/an758x-notes.md](doc/an758x-notes.md) |
+| UNG00A default env no longer carries the parallel-NAND `nand0` `mtdids`/`mtdparts`<br>UNG00A 默认 env 去掉并行 NAND 的 `nand0` 表项 | **This fork only** (`v1.0`)<br>**仅本仓库**（`v1.0`） |
+| `v1.0` release: CI-built images for all 12 targets<br>`v1.0` 发布：CI 构建的全部 12 个机型镜像 | [Releases](https://github.com/jzhou404gmail/uboot-an758x/releases) |
+| Local work log, symptoms and verification<br>本地工作记录、现象与验证 | [doc/an758x-notes.md](doc/an758x-notes.md) |
 
 ## TF-A sources / TF-A 来源
 
